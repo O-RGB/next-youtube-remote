@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Peer, DataConnection } from "peerjs";
 import { Song, Command, User } from "@/types/player";
@@ -17,7 +17,8 @@ import {
   FaYoutube,
 } from "react-icons/fa";
 
-export default function RemotePage() {
+// แยก Logic หลักมาไว้ใน Component นี้
+function RemoteContent() {
   const searchParams = useSearchParams();
   const hostId = searchParams.get("host");
 
@@ -320,5 +321,20 @@ export default function RemotePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Default Export ที่หุ้มด้วย Suspense
+export default function RemotePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0f0f11] text-white flex items-center justify-center font-mono animate-pulse">
+          Loading Remote...
+        </div>
+      }
+    >
+      <RemoteContent />
+    </Suspense>
   );
 }
