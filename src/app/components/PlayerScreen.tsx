@@ -54,6 +54,9 @@ export default function PlayerScreen() {
   const [isIOS, setIsIOS] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // [FIX 1] เพิ่ม Ref เพื่อจำค่าการกดเปิดเสียง (แม่นยำกว่า State)
+  const hasInteractedRef = useRef(false);
+
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -126,13 +129,14 @@ export default function PlayerScreen() {
         if (isIOS) {
           if (isMuted) setNeedsInteraction(true);
         } else {
-          if (!hasInteracted && isMuted) setNeedsInteraction(true);
+          // [FIX 2] เช็คจาก Ref แทน State เพื่อความแม่นยำ
+          if (!hasInteractedRef.current && isMuted) setNeedsInteraction(true);
         }
       } else {
         setNeedsInteraction(false);
       }
     }
-  }, [requireInteraction, isPlaying, isIOS, hasInteracted]);
+  }, [requireInteraction, isPlaying, isIOS]); // เอา hasInteracted ออกจาก dependency
 
   const handleCloseWelcome = () => {
     setShowWelcomeModal(false);
@@ -287,20 +291,32 @@ export default function PlayerScreen() {
       setTimeout(() => setShowNowPlaying(false), 5000);
 
       if (playerRef.current) {
+        // [FIX 3] โหลดวิดีโอ
         playerRef.current.loadVideoById(nextSong.id);
 
         if (requireInteraction) {
           if (isIOS) {
+            // iOS ต้องรอ User กดเสมอ
             playerRef.current.mute();
           } else {
-            if (!hasInteracted) {
+            // Android/PC: เช็คจาก Ref ถ้าเคยกดแล้ว ให้เล่นเลย
+            if (!hasInteractedRef.current) {
               playerRef.current.mute();
             } else {
+              // [FIX 4] Force Play สำหรับ Android
               playerRef.current.unMute();
               playerRef.current.setVolume(100);
-              playerRef.current.playVideo();
+              // หน่วงเวลานิดนึงเพื่อให้ YouTube API บน Android พร้อม
+              setTimeout(() => {
+                playerRef.current?.playVideo();
+              }, 150);
             }
           }
+        } else {
+          // Free Mode
+          playerRef.current.unMute();
+          playerRef.current.setVolume(100);
+          setTimeout(() => playerRef.current?.playVideo(), 150);
         }
       }
 
@@ -342,29 +358,27 @@ export default function PlayerScreen() {
 
   const onReady = (event: { target: YouTubePlayer }) => {
     playerRef.current = event.target;
-    if (requireInteraction) {
-      event.target.mute();
-    } else {
-      event.target.unMute();
-      event.target.setVolume(100);
-    }
+    // ปรับให้เริ่มต้น Mute ไว้ก่อนเพื่อความชัวร์ในการโหลด
+    event.target.mute();
   };
 
   const onStateChange = (e: any) => {
+    // 1 = Playing, 3 = Buffering
     if (e.data === 1 || e.data === 3) {
       setIsPlaying(true);
-
       if (requireInteraction) {
         const isMuted = playerRef.current?.isMuted();
-
         if (isIOS) {
           if (isMuted) setNeedsInteraction(true);
           else setNeedsInteraction(false);
         } else {
-          if (!hasInteracted && isMuted) {
+          // [FIX 5] ใช้ Ref เช็ค
+          if (!hasInteractedRef.current && isMuted) {
             setNeedsInteraction(true);
-          } else if (hasInteracted) {
+          } else if (hasInteractedRef.current) {
             setNeedsInteraction(false);
+            // ถ้าเคย Interact แล้วแต่เสียงยังปิดอยู่ ให้เปิดเสียงเลย
+            if (isMuted) playerRef.current?.unMute();
           }
         }
       } else {
@@ -372,7 +386,19 @@ export default function PlayerScreen() {
       }
     }
 
-    if (e.data === 2) setIsPlaying(false);
+    // [FIX 6] Watchdog: ถ้าหยุดเอง (Paused/Cued) แต่เราต้องการให้เล่น และเป็น Android ที่เคย Interact แล้ว -> สั่งเล่นต่อทันที
+    if (
+      (e.data === 2 || e.data === 5 || e.data === -1) &&
+      isPlaying &&
+      !isIOS &&
+      hasInteractedRef.current
+    ) {
+      playerRef.current?.playVideo();
+    } else if (e.data === 2) {
+      // ถ้าหยุดโดย User จริงๆ
+      setIsPlaying(false);
+    }
+
     if (e.data === 0) playNext();
   };
 
@@ -384,6 +410,8 @@ export default function PlayerScreen() {
     }
     setNeedsInteraction(false);
     setHasInteracted(true);
+    // [FIX 7] อัปเดต Ref ด้วย
+    hasInteractedRef.current = true;
   };
 
   const broadcastState = () => {
