@@ -287,20 +287,21 @@ export default function PlayerScreen() {
       setTimeout(() => setShowNowPlaying(false), 5000);
 
       if (playerRef.current) {
+        playerRef.current.loadVideoById(nextSong.id);
+
         if (requireInteraction) {
           if (isIOS) {
             playerRef.current.mute();
           } else {
-            // Android หรือ PC
             if (!hasInteracted) {
               playerRef.current.mute();
             } else {
               playerRef.current.unMute();
               playerRef.current.setVolume(100);
+              playerRef.current.playVideo();
             }
           }
         }
-        playerRef.current.loadVideoById(nextSong.id);
       }
 
       broadcastState();
