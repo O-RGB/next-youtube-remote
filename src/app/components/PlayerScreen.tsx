@@ -291,6 +291,7 @@ export default function PlayerScreen() {
           if (isIOS) {
             playerRef.current.mute();
           } else {
+            // Android หรือ PC
             if (!hasInteracted) {
               playerRef.current.mute();
             } else {
