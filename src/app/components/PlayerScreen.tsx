@@ -37,6 +37,20 @@ const formatTime = (seconds: number) => {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 };
 
+// [CONFIG] เพิ่ม STUN Servers เพื่อเจาะ Firewall/NAT ให้ดีขึ้น
+const peerConfig = {
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+      // ถ้ายังไม่ได้อีก ต้องไปสมัคร TURN Server (เช่น Metered.ca) แล้วเอามาใส่เพิ่มตรงนี้
+    ],
+  },
+};
+
 type VideoQuality = "small" | "medium" | "hd720" | "auto";
 
 export default function PlayerScreen() {
@@ -56,7 +70,7 @@ export default function PlayerScreen() {
   // Settings
   const [videoFit, setVideoFit] = useState(false);
   const [requireInteraction, setRequireInteraction] = useState(true);
-  const [videoQuality, setVideoQuality] = useState<VideoQuality>("auto"); // [NEW] Quality Setting
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>("auto");
 
   const [isIOS, setIsIOS] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -65,7 +79,7 @@ export default function PlayerScreen() {
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false); // [NEW] Loading State
+  const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
@@ -122,14 +136,13 @@ export default function PlayerScreen() {
     const savedReqInt = localStorage.getItem("jukebox_require_interaction");
     if (savedReqInt === "false") setRequireInteraction(false);
 
-    // [NEW] Load Quality Setting
+    // Load Quality
     const savedQuality = localStorage.getItem(
       "jukebox_video_quality"
     ) as VideoQuality;
     if (savedQuality) {
       setVideoQuality(savedQuality);
     } else {
-      // Auto-detect for low spec devices (concurrency < 4 usually implies older/budget device)
       if (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) {
         setVideoQuality("small");
         localStorage.setItem("jukebox_video_quality", "small");
@@ -142,7 +155,6 @@ export default function PlayerScreen() {
     }
   }, []);
 
-  // [NEW] Apply Quality changes
   useEffect(() => {
     if (playerRef.current && videoQuality !== "auto") {
       playerRef.current.setPlaybackQuality(videoQuality);
@@ -243,11 +255,12 @@ export default function PlayerScreen() {
     setToast({ msg, type });
   };
 
+  // [UPDATED] ใช้ peerConfig ที่เพิ่ม STUN servers แล้ว
   useEffect(() => {
     let peer: Peer;
     const initPeer = async () => {
       const { default: Peer } = await import("peerjs");
-      peer = new Peer();
+      peer = new Peer(peerConfig); // ใส่ Config ตรงนี้
       peer.on("open", (id) => setPeerId(id));
       peer.on("connection", (conn) => {
         conn.on("open", () => setTimeout(broadcastState, 500));
@@ -305,13 +318,13 @@ export default function PlayerScreen() {
         break;
       case "PLAY":
         if (isMaster(cmd.user.id)) {
-          setIsPlaying(true); // [FIX] Sync state manually
+          setIsPlaying(true);
           playerRef.current?.playVideo();
         }
         break;
       case "PAUSE":
         if (isMaster(cmd.user.id)) {
-          setIsPlaying(false); // [FIX] Sync state immediately to prevent Watchdog
+          setIsPlaying(false);
           playerRef.current?.pauseVideo();
         }
         break;
@@ -336,12 +349,11 @@ export default function PlayerScreen() {
       setQueue(remainingQueue);
       setCurrentSong(nextSong);
       setIsPlaying(true);
-      setIsBuffering(true); // [FIX] Start Loading
+      setIsBuffering(true);
       setShowNowPlaying(true);
       setTimeout(() => setShowNowPlaying(false), 5000);
 
       if (playerRef.current) {
-        // [FIX] Apply quality setting immediately on load
         playerRef.current.loadVideoById({
           videoId: nextSong.id,
           suggestedQuality: videoQuality !== "auto" ? videoQuality : "medium",
@@ -356,15 +368,11 @@ export default function PlayerScreen() {
             } else {
               playerRef.current.unMute();
               playerRef.current.setVolume(100);
-              // setTimeout(() => {
-              //   playerRef.current?.playVideo();
-              // }, 150);
             }
           }
         } else {
           playerRef.current.unMute();
           playerRef.current.setVolume(100);
-          // setTimeout(() => playerRef.current?.playVideo(), 150);
         }
       }
 
@@ -408,16 +416,13 @@ export default function PlayerScreen() {
   const onReady = (event: { target: YouTubePlayer }) => {
     playerRef.current = event.target;
     event.target.mute();
-    // [FIX] Apply initial quality
     if (videoQuality !== "auto") {
       event.target.setPlaybackQuality(videoQuality);
     }
   };
 
   const onStateChange = (e: any) => {
-    // -1 = Unstarted, 0 = Ended, 1 = Playing, 2 = Paused, 3 = Buffering, 5 = Cued
-
-    // [FIX] Handle Buffering/Loading UI
+    // 3=Buffering, -1=Unstarted
     if (e.data === 3 || e.data === -1) {
       setIsBuffering(true);
     } else if (e.data === 1) {
@@ -426,7 +431,6 @@ export default function PlayerScreen() {
     }
 
     if (e.data === 1 || e.data === 3) {
-      // Logic check interaction ...
       if (requireInteraction) {
         const isMuted = playerRef.current?.isMuted();
         if (isIOS) {
@@ -445,25 +449,17 @@ export default function PlayerScreen() {
       }
     }
 
-    // [FIX] Watchdog: Improved Logic
-    // Only force play if:
-    // 1. Status is paused/cued/unstarted
-    // 2. We THINK we should be playing (isPlaying = true)
-    // 3. Not on iOS (iOS controls itself)
-    // 4. User has interacted previously
+    // Watchdog Logic
     if (
       (e.data === 2 || e.data === 5 || e.data === -1) &&
-      isPlaying && // This variable is now critical
+      isPlaying &&
       !isIOS &&
       hasInteractedRef.current
     ) {
-      // If we are buffering, don't force play yet, let it buffer
-      // But if it's PAUSED (2), force play
       if (e.data === 2) {
         playerRef.current?.playVideo();
       }
     } else if (e.data === 2) {
-      // If stopped by User locally (controls) or via Remote (which sets isPlaying=false first)
       setIsPlaying(false);
     }
 
@@ -516,7 +512,6 @@ export default function PlayerScreen() {
         />
       )}
 
-      {/* Interaction Prompt Overlay */}
       {needsInteraction && currentSong && requireInteraction && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div
@@ -536,7 +531,6 @@ export default function PlayerScreen() {
         </div>
       )}
 
-      {/* Top Bar */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 transition-all duration-500 ease-in-out border-b border-zinc-800 bg-black/90
             ${
@@ -576,7 +570,6 @@ export default function PlayerScreen() {
         </div>
       </header>
 
-      {/* Video Area */}
       <div className="flex-1 relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
         <div
           className={`transition-all duration-700 ease-in-out bg-black ${
@@ -587,7 +580,6 @@ export default function PlayerScreen() {
               : "w-full h-full relative"
           }`}
         >
-          {/* [FIX] Black Background Wrapper to prevent white flash */}
           <div
             className={`bg-black ${
               videoFit
@@ -595,7 +587,6 @@ export default function PlayerScreen() {
                 : "w-full h-full"
             }`}
           >
-            {/* [FIX] Loading Spinner Overlay */}
             {isBuffering && currentSong && !showQR && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
                 <div className="flex flex-col items-center gap-3">
@@ -637,7 +628,6 @@ export default function PlayerScreen() {
           </div>
         </div>
 
-        {/* QR Code Overlay (Idle) */}
         {showQR && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4">
             <div className="flex flex-col items-center gap-6 p-8 rounded-3xl bg-zinc-900 border border-zinc-700 shadow-2xl animate-in fade-in zoom-in duration-500 max-w-sm w-full">
@@ -669,7 +659,6 @@ export default function PlayerScreen() {
           </div>
         )}
 
-        {/* Now Playing Popup */}
         <div
           className={`absolute inset-0 flex items-center justify-center z-20 pointer-events-none transition-all duration-500 
             ${
@@ -693,7 +682,6 @@ export default function PlayerScreen() {
         </div>
       </div>
 
-      {/* Footer Controls */}
       <footer
         className={`fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-zinc-800 transition-all duration-500 ease-in-out flex items-center 
         ${
@@ -782,7 +770,6 @@ export default function PlayerScreen() {
         </div>
       </footer>
 
-      {/* Settings Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -884,7 +871,6 @@ export default function PlayerScreen() {
           {settingsTab === "settings" && (
             <div className="grid grid-cols-1 gap-4">
               <div className="bg-zinc-800/50 rounded-xl p-6 flex flex-col gap-6">
-                {/* Interaction Setting */}
                 <div className="flex items-center justify-between">
                   <div className="flex gap-3 items-center">
                     <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
@@ -915,7 +901,6 @@ export default function PlayerScreen() {
 
                 <div className="h-px bg-white/5" />
 
-                {/* Aspect Ratio Setting */}
                 <div className="flex items-center justify-between">
                   <div className="flex gap-3 items-center">
                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">

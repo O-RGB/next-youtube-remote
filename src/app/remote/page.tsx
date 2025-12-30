@@ -14,7 +14,19 @@ import {
   FaStop,
 } from "react-icons/fa";
 import Modal from "../components/Modal";
-import FunToast from "../components/FunToast";
+
+// [CONFIG] ใช้ Config เดียวกันกับหน้า Player เพื่อให้เจาะ Network เดียวกันได้
+const peerConfig = {
+  config: {
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+    ],
+  },
+};
 
 function RemoteContent() {
   const searchParams = useSearchParams();
@@ -62,7 +74,10 @@ function RemoteContent() {
     let peer: Peer;
     const init = async () => {
       const { default: Peer } = await import("peerjs");
-      peer = new Peer();
+
+      // [UPDATED] ใส่ Config ที่นี่ด้วย
+      peer = new Peer(peerConfig);
+
       peer.on("open", () => {
         setStatus("กำลังเชื่อมต่อ...");
         const conn = peer.connect(hostId);
@@ -79,6 +94,12 @@ function RemoteContent() {
           }
         });
         conn.on("close", () => setStatus("หลุดการเชื่อมต่อ"));
+      });
+
+      // Handle Errors
+      peer.on("error", (err) => {
+        console.error(err);
+        setStatus("เชื่อมต่อล้มเหลว (ลอง Refresh ใหม่)");
       });
     };
     init();
