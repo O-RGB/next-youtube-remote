@@ -13,13 +13,14 @@ import {
   FaExpand,
   FaCog,
   FaCompactDisc,
-  FaVolumeUp,
   FaLink,
   FaAndroid,
   FaApple,
   FaCrop,
-  FaVolumeMute,
   FaCheck,
+  FaCompress,
+  FaHandPointer,
+  FaVolumeUp,
 } from "react-icons/fa";
 import FunToast from "../components/FunToast";
 import Modal from "./Modal";
@@ -49,7 +50,10 @@ export default function PlayerScreen() {
   const [origin, setOrigin] = useState("");
 
   // Settings State
-  const [videoFit, setVideoFit] = useState(false); // true = ตัดขอบ (Scale Up)
+  const [videoFit, setVideoFit] = useState(false);
+  const [requireInteraction, setRequireInteraction] = useState(true);
+  const [isIOS, setIsIOS] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -92,13 +96,22 @@ export default function PlayerScreen() {
   useEffect(() => {
     setOrigin(window.location.origin);
 
-    // Load Master ID
+    // Check OS
+    const userAgent =
+      navigator.userAgent || navigator.vendor || (window as any).opera;
+    const isIOSCheck =
+      /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    setIsIOS(isIOSCheck);
+
+    // Load LocalStorage
     const savedMaster = localStorage.getItem("jukebox_master_id");
     if (savedMaster) setMasterId(savedMaster);
 
-    // Load Video Fit Setting
     const savedFit = localStorage.getItem("jukebox_video_fit");
     if (savedFit === "true") setVideoFit(true);
+
+    const savedReqInt = localStorage.getItem("jukebox_require_interaction");
+    if (savedReqInt === "false") setRequireInteraction(false);
 
     // Check Welcome Modal
     const hasSeenWelcome = localStorage.getItem("jukebox_has_seen_welcome");
@@ -110,16 +123,23 @@ export default function PlayerScreen() {
   const handleCloseWelcome = () => {
     setShowWelcomeModal(false);
     localStorage.setItem("jukebox_has_seen_welcome", "true");
-    // Try to unmute immediately after interaction
-    if (playerRef.current) {
-      playerRef.current.unMute();
-    }
   };
 
   const toggleVideoFit = () => {
     const newVal = !videoFit;
     setVideoFit(newVal);
     localStorage.setItem("jukebox_video_fit", String(newVal));
+    showToast(newVal ? "โหมดเต็มจอ (ตัดขอบ)" : "โหมดปกติ (เห็นครบ)", "info");
+  };
+
+  const toggleRequireInteraction = () => {
+    const newVal = !requireInteraction;
+    setRequireInteraction(newVal);
+    localStorage.setItem("jukebox_require_interaction", String(newVal));
+    showToast(
+      newVal ? "เปิดระบบตรวจสอบเสียง (Safe)" : "ปิดระบบตรวจสอบ (Free Mode)",
+      "info"
+    );
   };
 
   // --- UI Auto Shrink Logic ---
@@ -255,7 +275,11 @@ export default function PlayerScreen() {
       setIsPlaying(true);
       setShowNowPlaying(true);
       setTimeout(() => setShowNowPlaying(false), 5000);
-      if (playerRef.current) playerRef.current.loadVideoById(nextSong.id);
+
+      if (playerRef.current) {
+        playerRef.current.loadVideoById(nextSong.id);
+      }
+
       broadcastState();
     } else {
       handleStop();
@@ -287,23 +311,36 @@ export default function PlayerScreen() {
   };
 
   const onStateChange = (e: any) => {
-    if (e.data === 1) {
+    if (e.data === 1 || e.data === 3) {
       setIsPlaying(true);
-      setNeedsInteraction(false);
+
+      if (requireInteraction) {
+        if (isIOS) {
+          const isMuted = playerRef.current?.isMuted();
+          if (isMuted) setNeedsInteraction(true);
+          else setNeedsInteraction(false);
+        } else {
+          if (!hasInteracted) {
+            const isMuted = playerRef.current?.isMuted();
+            if (isMuted) setNeedsInteraction(true);
+          }
+        }
+      } else {
+        setNeedsInteraction(false);
+      }
     }
     if (e.data === 2) setIsPlaying(false);
     if (e.data === 0) playNext();
+  };
 
-    if ((e.data === -1 || e.data === 5) && currentSong) {
-      setTimeout(() => {
-        if (playerRef.current) {
-          const state = playerRef.current.getPlayerState();
-          if (state !== 1 && state !== 3) {
-            setNeedsInteraction(true);
-          }
-        }
-      }, 1000);
+  const handleUserInteraction = () => {
+    if (playerRef.current) {
+      playerRef.current.unMute();
+      playerRef.current.setVolume(100);
+      playerRef.current.playVideo();
     }
+    setNeedsInteraction(false);
+    setHasInteracted(true);
   };
 
   const broadcastState = () => {
@@ -341,31 +378,27 @@ export default function PlayerScreen() {
         />
       )}
 
-      {/* --- Unmute / Interaction Overlay --- */}
-      {needsInteraction && currentSong && (
+      {/* --- Unmute / Interaction Overlay (Only if requireInteraction is ON) --- */}
+      {needsInteraction && currentSong && requireInteraction && (
         <div
-          onClick={() => {
-            playerRef.current?.unMute();
-            playerRef.current?.playVideo();
-            setNeedsInteraction(false);
-          }}
-          className="absolute inset-0 z-[60] bg-black/60 flex flex-col items-center justify-center cursor-pointer animate-in fade-in duration-300"
+          onClick={handleUserInteraction}
+          className="absolute inset-0 z-[60] bg-black/60 flex flex-col items-center justify-center cursor-pointer animate-in fade-in duration-300 backdrop-blur-sm"
         >
           <div className="bg-white text-black p-6 rounded-full shadow-[0_0_50px_rgba(255,255,255,0.4)] animate-pulse">
-            <FaPlay size={40} className="pl-1" />
+            <FaVolumeUp size={40} className="pl-1" />
           </div>
-          <p className="mt-6 text-2xl font-bold tracking-widest uppercase">
-            แตะเพื่อเล่นเพลง
+          <p className="mt-6 text-xl md:text-2xl font-bold tracking-widest uppercase text-center px-4">
+            {isIOS ? "แตะเพื่อเปิดเสียงเพลง (iOS)" : "แตะหน้าจอเพื่อเริ่มเสียง"}
           </p>
         </div>
       )}
 
-      {/* --- Header (Top Bar) --- */}
+      {/* --- Header --- */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 transition-all duration-500 ease-in-out border-b border-zinc-800 bg-black
             ${
               isUIIdle
-                ? "h-12 opacity-80 translate-y-[-10%]"
+                ? "h-12 opacity-20 translate-y-[-10%] hover:opacity-100"
                 : "h-16 opacity-100 translate-y-0"
             }`}
       >
@@ -388,15 +421,6 @@ export default function PlayerScreen() {
           className="flex items-center gap-3 transition-transform duration-500 origin-right"
           style={{ transform: isUIIdle ? "scale(0.8)" : "scale(1)" }}
         >
-          <button
-            onClick={() => {
-              playerRef.current?.unMute();
-              showToast("เปิดเสียงแล้ว", "info");
-            }}
-            className="md:hidden p-2 text-gray-400 hover:text-white"
-          >
-            <FaVolumeUp />
-          </button>
           <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-700 text-xs font-mono text-gray-400">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -410,35 +434,47 @@ export default function PlayerScreen() {
         </div>
       </header>
 
-      {/* --- Content --- */}
-      <div className="flex-1 relative w-full bg-black flex items-center justify-center overflow-hidden">
-        {/* YouTube Wrapper for Scaling/Cropping */}
+      {/* --- Content Area --- */}
+      <div className="flex-1 relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
+        {/* YouTube Wrapper */}
         <div
-          className={`w-full h-full relative transition-transform duration-700 ease-in-out ${
-            videoFit ? "scale-[1.35]" : "scale-100"
-          } ${showQR ? "opacity-20 !scale-95" : "opacity-100"}`}
+          className={`transition-all duration-700 ease-in-out ${
+            showQR ? "opacity-20 !scale-95" : "opacity-100"
+          } ${
+            videoFit
+              ? "absolute inset-0 w-full h-full overflow-hidden"
+              : "w-full h-full relative"
+          }`}
         >
-          <YouTube
-            videoId={currentSong?.id || ""}
-            opts={{
-              height: "100%",
-              width: "100%",
-              playerVars: {
-                autoplay: 1,
-                controls: 0,
-                disablekb: 1,
-                rel: 0,
-                showinfo: 0,
-                modestbranding: 1,
-                fs: 0,
-                iv_load_policy: 3,
-                playsinline: 1,
-              },
-            }}
-            onReady={onReady}
-            onStateChange={onStateChange}
-            className="absolute inset-0 w-full h-full pointer-events-none"
-          />
+          <div
+            className={
+              videoFit
+                ? "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.78vh] h-[100vh] min-w-full min-h-full"
+                : "w-full h-full"
+            }
+          >
+            <YouTube
+              videoId={currentSong?.id || ""}
+              opts={{
+                height: "100%",
+                width: "100%",
+                playerVars: {
+                  autoplay: 1,
+                  controls: 0,
+                  disablekb: 1,
+                  rel: 0,
+                  showinfo: 0,
+                  modestbranding: 1,
+                  fs: 0,
+                  iv_load_policy: 3,
+                  playsinline: 1,
+                },
+              }}
+              onReady={onReady}
+              onStateChange={onStateChange}
+              className="w-full h-full pointer-events-none"
+            />
+          </div>
         </div>
 
         {/* QR Code */}
@@ -499,47 +535,46 @@ export default function PlayerScreen() {
 
       {/* --- Footer Control Bar --- */}
       <footer
-        className={`fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-zinc-800 transition-all duration-500 ease-in-out flex items-center gap-6
+        className={`fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-zinc-800 transition-all duration-500 ease-in-out flex items-center 
         ${
           isUIIdle
-            ? "h-16 px-8 opacity-20 translate-y-0 hover:opacity-100" // ปรับ opacity 0.2 ตอน idle
-            : "h-24 px-4 md:px-10 opacity-100 translate-y-0"
-        }`}
+            ? "h-12 px-2 opacity-20 hover:opacity-100"
+            : "h-16 px-2 md:px-8 opacity-100"
+        } gap-2 md:gap-6`}
       >
-        <div className="flex items-center gap-4 transition-all duration-500">
+        <div className="flex items-center gap-1 md:gap-2 transition-all duration-500 shrink-0">
           <button
             onClick={() =>
               isPlaying
                 ? playerRef.current?.pauseVideo()
                 : playerRef.current?.playVideo()
             }
-            className={`rounded-full bg-white text-black flex items-center justify-center hover:scale-110 transition shadow-lg shadow-white/10
-                ${isUIIdle ? "w-8 h-8" : "w-12 h-12"}`} // ลดขนาดปุ่ม Play ให้เล็กลงตอน idle (8x4 = 32px)
+            className="text-white hover:text-pink-500 p-2 hover:scale-110 transition bg-white/10 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center"
           >
             {isPlaying ? (
-              <FaPause size={isUIIdle ? 12 : 16} />
+              <FaPause size={12} />
             ) : (
-              <FaPlay className="ml-1" size={isUIIdle ? 12 : 16} />
+              <FaPlay className="ml-1" size={12} />
             )}
           </button>
+
           <button
             onClick={() => playNext()}
             className="text-gray-400 hover:text-white p-2 hover:scale-110 transition"
           >
-            <FaStepForward size={isUIIdle ? 18 : 20} />
+            <FaStepForward size={18} />
           </button>
         </div>
 
-        {/* Time & Progress */}
         <div
-          className={`flex-1 flex items-center gap-4 transition-all duration-500 ${
+          className={`flex-1 flex items-center gap-2 md:gap-4 transition-all duration-500 ${
             isUIIdle ? "opacity-0 blur-sm pointer-events-none" : "opacity-100"
           }`}
         >
-          <span className="text-xs font-mono text-gray-500 w-10 text-right">
+          <span className="text-[10px] md:text-xs font-mono text-gray-500 w-8 md:w-10 text-right shrink-0">
             {formatTime(currentTime)}
           </span>
-          <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden relative group">
+          <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden relative group mx-1">
             <div
               className="absolute inset-y-0 left-0 bg-pink-600 transition-all duration-300"
               style={{ width: `${(currentTime / duration) * 100}%` }}
@@ -552,17 +587,16 @@ export default function PlayerScreen() {
               onChange={(e) =>
                 playerRef.current?.seekTo(parseFloat(e.target.value), true)
               }
-              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
           </div>
-          <span className="text-xs font-mono text-gray-500 w-10">
+          <span className="text-[10px] md:text-xs font-mono text-gray-500 w-8 md:w-10 shrink-0">
             {formatTime(duration)}
           </span>
         </div>
 
-        {/* Tools */}
         <div
-          className={`flex items-center gap-2 border-l border-zinc-800 pl-4 transition-all duration-500 ${
+          className={`flex items-center gap-1 md:gap-2 border-l border-zinc-800 pl-2 md:pl-4 transition-all duration-500 shrink-0 ${
             isUIIdle ? "scale-90" : "scale-100"
           }`}
         >
@@ -570,18 +604,18 @@ export default function PlayerScreen() {
             onClick={toggleFullscreen}
             className="text-gray-400 hover:text-white p-2"
           >
-            <FaExpand />
+            <FaExpand size={14} />
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
             className="text-gray-400 hover:text-white p-2"
           >
-            <FaCog />
+            <FaCog size={14} />
           </button>
         </div>
       </footer>
 
-      {/* Settings Modal (Updated with Tabs) */}
+      {/* Settings Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -612,7 +646,6 @@ export default function PlayerScreen() {
       >
         <div className="p-4 text-white">
           {settingsTab === "dashboard" ? (
-            // --- Dashboard Tab ---
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
               <div className="bg-zinc-800/50 rounded-xl p-4">
                 <h3 className="font-bold text-pink-500 mb-2">
@@ -670,19 +703,51 @@ export default function PlayerScreen() {
               </div>
             </div>
           ) : (
-            // --- Settings Tab ---
             <div className="grid grid-cols-1 gap-4">
               <div className="bg-zinc-800/50 rounded-xl p-6 flex flex-col gap-6">
-                {/* Crop / Scale Option */}
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-3 items-center">
+                    <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                      <FaHandPointer />
+                    </div>
+                    <div>
+                      <h4 className="font-bold">ระบบตรวจสอบการเปิดเสียง</h4>
+                      <p className="text-xs text-gray-400">
+                        {requireInteraction
+                          ? "เปิด (Safe): บังคับกดเปิดเสียง"
+                          : "ปิด (Free Mode): เล่นต่อเนื่อง (อาจไม่มีเสียง)"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleRequireInteraction}
+                    className={`w-14 h-7 rounded-full p-1 transition-colors duration-300 ${
+                      requireInteraction ? "bg-green-500" : "bg-zinc-600"
+                    }`}
+                  >
+                    <div
+                      className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${
+                        requireInteraction ? "translate-x-7" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="h-px bg-white/5" />
+
                 <div className="flex items-center justify-between">
                   <div className="flex gap-3 items-center">
                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
-                      <FaCrop />
+                      {videoFit ? <FaCompress /> : <FaCrop />}
                     </div>
                     <div>
-                      <h4 className="font-bold">ตัดขอบวิดีโอ (Fill Screen)</h4>
+                      <h4 className="font-bold">
+                        โหมดการแสดงผล (Aspect Ratio)
+                      </h4>
                       <p className="text-xs text-gray-400">
-                        ขยายวิดีโอให้เต็มจอโทรศัพท์ (ตัดขอบดำออก)
+                        {videoFit
+                          ? "กำลังใช้งาน: เต็มจอ (ตัดขอบ)"
+                          : "กำลังใช้งาน: ปกติ (เห็นครบ)"}
                       </p>
                     </div>
                   </div>
@@ -699,93 +764,65 @@ export default function PlayerScreen() {
                     />
                   </button>
                 </div>
-
-                <div className="h-px bg-white/5" />
-
-                {/* Unmute Option */}
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-3 items-center">
-                    <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400">
-                      <FaVolumeMute />
-                    </div>
-                    <div>
-                      <h4 className="font-bold">แก้ไขปัญหาเสียงหาย</h4>
-                      <p className="text-xs text-gray-400">
-                        หากวิดีโอเล่นแต่ไม่มีเสียง ให้กดปุ่มนี้
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (playerRef.current) {
-                        playerRef.current.unMute();
-                        playerRef.current.setVolume(100);
-                        showToast("เปิดเสียงแล้ว", "info");
-                      }
-                    }}
-                    className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2 rounded-lg text-sm font-bold transition"
-                  >
-                    เปิดเสียง (Unmute)
-                  </button>
-                </div>
               </div>
 
               <div className="text-center text-xs text-gray-500 mt-4">
-                NextJuke Settings v1.1
+                OS: {isIOS ? "iOS / iPadOS" : "Android / Desktop"} detected
               </div>
             </div>
           )}
         </div>
       </Modal>
 
-      {/* Welcome / Info Modal */}
+      {/* Welcome / Info Modal (Compact Version for Mobile) */}
       <Modal
         isOpen={showWelcomeModal}
         onClose={handleCloseWelcome}
-        title="ข้อแนะนำการใช้งาน"
+        title="ยินดีต้อนรับสู่ NextJuke"
       >
-        <div className="p-6 text-white">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="p-3 md:p-6 text-white overflow-y-auto max-h-[80vh]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-8">
             {/* Android Info */}
-            <div className="bg-zinc-800/50 p-6 rounded-2xl border border-green-500/20 text-center space-y-4">
-              <FaAndroid className="text-6xl text-green-500 mx-auto" />
-              <h3 className="text-xl font-bold text-green-400">Android User</h3>
-              <p className="text-sm text-gray-300 leading-relaxed">
-                บน Android ส่วนใหญ่สามารถทำงานได้ปกติ <br />
-                เพียงแค่แตะ <strong>
-                  "เปิดเสียง"
-                </strong> หรือแตะหน้าจอครั้งแรก <br />
-                ระบบจะสามารถ Autoplay เพลงถัดไปได้อัตโนมัติ
+            <div className="bg-zinc-800/50 p-3 md:p-6 rounded-2xl border border-green-500/20 text-center space-y-2 md:space-y-4">
+              <FaAndroid className="text-4xl md:text-6xl text-green-500 mx-auto" />
+              <h3 className="text-base md:text-xl font-bold text-green-400">
+                Android User
+              </h3>
+              <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                ระบบจะเล่นเพลงต่อเนื่องอัตโนมัติ <br />
+                เพียงแค่แตะ <strong>"เปิดเสียง"</strong> ในเพลงแรกครั้งเดียว
               </p>
-              <div className="flex justify-center">
-                <FaCheck className="text-green-500" />{" "}
-                <span className="text-xs ml-2 text-green-500">
+              <div className="flex justify-center items-center gap-2">
+                <FaCheck className="text-green-500" />
+                <span className="text-xs text-green-500">
                   แนะนำสำหรับเปิดจอทิ้งไว้
                 </span>
               </div>
             </div>
 
             {/* iOS Info */}
-            <div className="bg-zinc-800/50 p-6 rounded-2xl border border-gray-500/20 text-center space-y-4">
-              <FaApple className="text-6xl text-white mx-auto" />
-              <h3 className="text-xl font-bold text-white">iOS / iPad User</h3>
-              <p className="text-sm text-gray-300 leading-relaxed">
-                เนื่องจากนโยบายความปลอดภัยของ Apple <br />
-                <strong>
-                  เสียงอาจจะถูกปิด (Mute)
-                </strong> ทุกครั้งที่เปลี่ยนเพลง <br />
-                คุณอาจจะต้องคอยกดปุ่มเปิดเสียงด้วยตัวเอง
+            <div className="bg-zinc-800/50 p-3 md:p-6 rounded-2xl border border-white/20 text-center space-y-2 md:space-y-4">
+              <FaApple className="text-4xl md:text-6xl text-white mx-auto" />
+              <h3 className="text-base md:text-xl font-bold text-white">
+                iOS User
+              </h3>
+              <p className="text-xs md:text-sm text-gray-300 leading-relaxed">
+                เนื่องจากระบบความปลอดภัยของ iOS <br />
+                เสียงเพลงจะถูกปิดอัตโนมัติเมื่อเริ่มเพลงใหม่ <br />
+                <strong className="text-pink-400">
+                  คุณต้องกดปุ่ม "เปิดเสียง" ทุกครั้ง
+                </strong>
               </p>
-              <div className="inline-block bg-red-500/20 text-red-300 text-xs px-3 py-1 rounded-full">
-                ต้องกดเปิดเสียงทุกครั้ง
+              <div className="inline-block bg-red-500/20 text-red-300 text-[10px] md:text-xs px-2 md:px-3 py-1 rounded-full">
+                ข้อจำกัดของระบบปฏิบัติการ
               </div>
             </div>
           </div>
           <button
             onClick={handleCloseWelcome}
-            className="w-full mt-8 bg-pink-600 hover:bg-pink-500 text-white py-4 rounded-xl font-bold text-lg transition shadow-lg shadow-pink-600/20"
+            className="w-full mt-4 md:mt-8 bg-pink-600 hover:bg-pink-500 text-white py-3 md:py-4 rounded-xl font-bold text-sm md:text-lg transition shadow-lg shadow-pink-600/20 sticky bottom-0"
           >
-            รับทราบ และเริ่มปาร์ตี้!
+            รับทราบ
           </button>
         </div>
       </Modal>
