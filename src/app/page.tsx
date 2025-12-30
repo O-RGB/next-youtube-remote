@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { FaQrcode, FaUsers, FaYoutube, FaRocket } from "react-icons/fa";
+import {
+  FaQrcode,
+  FaUsers,
+  FaYoutube,
+  FaRocket,
+  FaMusic,
+  FaArrowRight,
+} from "react-icons/fa";
 import PlayerScreen from "./components/PlayerScreen";
 
 export default function Home() {
@@ -52,6 +59,36 @@ export default function Home() {
           <span className="absolute inset-0 rounded-full ring-2 ring-white/20 group-hover:ring-white/40 animate-pulse"></span>
         </button>
 
+        <div className="w-full mt-24 mb-10 p-1">
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 to-purple-900 border border-white/10 p-8 sm:p-12 text-left flex flex-col sm:flex-row items-center justify-between gap-8 group">
+            {/* Background Glow */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="space-y-4 relative z-10 max-w-xl">
+              <div className="flex items-center gap-3 text-indigo-300 font-bold uppercase tracking-wider text-sm">
+                <FaMusic /> แนะนำเพื่อนบ้าน
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white">
+                NextKaraoke
+              </h2>
+              <p className="text-gray-300 text-lg leading-relaxed">
+                อีกหนึ่งทางเลือกสำหรับสายร้อง! แอปเล่นคาราโอเกะบนเว็บ รองรับไฟล์{" "}
+                <span className="text-white font-bold">MIDI, EMK, NCN</span>{" "}
+                เต็มรูปแบบ
+              </p>
+            </div>
+
+            <a
+              href="https://next-karaoke.vercel.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative z-10 shrink-0 bg-white text-indigo-900 px-8 py-4 rounded-full font-bold text-lg flex items-center gap-2 hover:bg-indigo-50 hover:scale-105 transition shadow-xl"
+            >
+              ลองดูไหม <FaArrowRight />
+            </a>
+          </div>
+        </div>
+
         {/* Features Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full mt-16 text-left">
           <FeatureCard
@@ -70,6 +107,8 @@ export default function Home() {
             desc="ทุกคนมีสิทธิ์เลือกเพลง โดยมี Master DJ คอยดูแลความเรียบร้อย"
           />
         </div>
+
+        {/* --- เพิ่มส่วนแนะนำ NextKaraoke --- */}
       </main>
 
       {/* Footer */}

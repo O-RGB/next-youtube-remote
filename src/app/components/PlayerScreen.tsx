@@ -21,6 +21,9 @@ import {
   FaCompress,
   FaHandPointer,
   FaVolumeUp,
+  FaHeart,
+  FaCode,
+  FaInfoCircle,
 } from "react-icons/fa";
 import FunToast from "../components/FunToast";
 import Modal from "./Modal";
@@ -44,9 +47,9 @@ export default function PlayerScreen() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"dashboard" | "settings">(
-    "dashboard"
-  );
+  const [settingsTab, setSettingsTab] = useState<
+    "dashboard" | "settings" | "about"
+  >("dashboard");
   const [origin, setOrigin] = useState("");
 
   // Settings State
@@ -119,6 +122,24 @@ export default function PlayerScreen() {
       setShowWelcomeModal(true);
     }
   }, []);
+
+  // --- FIX: Re-evaluate interaction needs when setting toggles ---
+  useEffect(() => {
+    if (playerRef.current && isPlaying) {
+      if (requireInteraction) {
+        // ถ้าเปิด setting กลับมา ให้เช็คทันทีว่า mute อยู่ไหม
+        const isMuted = playerRef.current.isMuted();
+        if (isIOS) {
+          if (isMuted) setNeedsInteraction(true);
+        } else {
+          if (!hasInteracted && isMuted) setNeedsInteraction(true);
+        }
+      } else {
+        // ถ้าปิด setting ให้เอา overlay ออกทันที
+        setNeedsInteraction(false);
+      }
+    }
+  }, [requireInteraction, isPlaying, isIOS, hasInteracted]);
 
   const handleCloseWelcome = () => {
     setShowWelcomeModal(false);
@@ -620,10 +641,10 @@ export default function PlayerScreen() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={
-          <div className="flex gap-4 text-base">
+          <div className="flex gap-4 text-base overflow-x-auto pb-1">
             <button
               onClick={() => setSettingsTab("dashboard")}
-              className={`pb-1 ${
+              className={`whitespace-nowrap pb-1 ${
                 settingsTab === "dashboard"
                   ? "text-white border-b-2 border-pink-500 font-bold"
                   : "text-gray-500"
@@ -633,7 +654,7 @@ export default function PlayerScreen() {
             </button>
             <button
               onClick={() => setSettingsTab("settings")}
-              className={`pb-1 ${
+              className={`whitespace-nowrap pb-1 ${
                 settingsTab === "settings"
                   ? "text-white border-b-2 border-pink-500 font-bold"
                   : "text-gray-500"
@@ -641,11 +662,21 @@ export default function PlayerScreen() {
             >
               Settings
             </button>
+            <button
+              onClick={() => setSettingsTab("about")}
+              className={`whitespace-nowrap pb-1 ${
+                settingsTab === "about"
+                  ? "text-white border-b-2 border-pink-500 font-bold"
+                  : "text-gray-500"
+              }`}
+            >
+              เกี่ยวกับเรา
+            </button>
           </div>
         }
       >
         <div className="p-4 text-white">
-          {settingsTab === "dashboard" ? (
+          {settingsTab === "dashboard" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
               <div className="bg-zinc-800/50 rounded-xl p-4">
                 <h3 className="font-bold text-pink-500 mb-2">
@@ -702,7 +733,9 @@ export default function PlayerScreen() {
                 </div>
               </div>
             </div>
-          ) : (
+          )}
+
+          {settingsTab === "settings" && (
             <div className="grid grid-cols-1 gap-4">
               <div className="bg-zinc-800/50 rounded-xl p-6 flex flex-col gap-6">
                 <div className="flex items-center justify-between">
@@ -768,6 +801,62 @@ export default function PlayerScreen() {
 
               <div className="text-center text-xs text-gray-500 mt-4">
                 OS: {isIOS ? "iOS / iPadOS" : "Android / Desktop"} detected
+              </div>
+            </div>
+          )}
+
+          {settingsTab === "about" && (
+            <div className="grid grid-cols-1 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="bg-zinc-800/50 rounded-xl p-6 space-y-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 bg-pink-500/20 rounded-full flex items-center justify-center text-pink-500">
+                    <FaHeart size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">เกี่ยวกับ NextJuke</h3>
+                    <p className="text-gray-400 text-sm">
+                      สร้างด้วยใจ เพื่อปาร์ตี้ของคุณ
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-gray-300 leading-relaxed text-sm">
+                  แอปพลิเคชันนี้เกิดขึ้นจากความต้องการใช้งานส่วนตัว
+                  ในงานปาร์ตี้ที่บ้าน
+                  เพื่อแก้ปัญหาการต้องส่งโทรศัพท์เครื่องเดียววนไปรอบวงเพื่อเปิดเพลง
+                  ทำให้ทุกคนสามารถร่วมสนุกเป็น DJ ได้จากมือถือของตัวเอง
+                </p>
+
+                <div className="p-4 bg-zinc-900/50 rounded-lg border border-white/5 mt-4">
+                  <h4 className="text-white font-bold flex items-center gap-2 mb-3">
+                    <FaCode className="text-blue-400" /> Tech Stack
+                  </h4>
+                  <ul className="space-y-2 text-sm text-gray-400">
+                    <li>
+                      • <span className="text-white">Next.js</span> - Framework
+                      หลักในการพัฒนา
+                    </li>
+                    <li>
+                      • <span className="text-white">Tailwind CSS</span> -
+                      ตกแต่งหน้าตาแอป
+                    </li>
+                    <li>
+                      • <span className="text-white">PeerJS (WebRTC)</span> -
+                      ระบบรีโมทไร้สายแบบ Real-time
+                    </li>
+                    <li>
+                      • <span className="text-white">YouTube IFrame API</span> -
+                      ตัวเล่นเพลงหลัก
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-4 justify-center">
+                  <FaInfoCircle />
+                  <span>
+                    ใช้งานฟรี 100% ไม่มีโฆษณา ไม่มีการเก็บข้อมูลส่วนตัว
+                  </span>
+                </div>
               </div>
             </div>
           )}
