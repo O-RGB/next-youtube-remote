@@ -31,7 +31,7 @@ export default function Modal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 sm:p-10 animate-in fade-in duration-200">
       <div className="w-full max-w-5xl max-h-[90vh] bg-zinc-900 rounded-3xl border border-zinc-800 shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-5 border-b border-zinc-800 flex justify-between items-center bg-zinc-950">

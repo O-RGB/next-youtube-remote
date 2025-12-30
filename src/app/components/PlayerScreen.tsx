@@ -58,6 +58,9 @@ export default function PlayerScreen() {
   const [isIOS, setIsIOS] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // --- เพิ่ม State เช็ค Fullscreen Support ---
+  const [supportsFullscreen, setSupportsFullscreen] = useState(false);
+
   // Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -106,6 +109,13 @@ export default function PlayerScreen() {
       /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
     setIsIOS(isIOSCheck);
 
+    // --- Check Fullscreen Support ---
+    setSupportsFullscreen(
+      !!(
+        document.fullscreenEnabled || (document as any).webkitFullscreenEnabled
+      )
+    );
+
     // Load LocalStorage
     const savedMaster = localStorage.getItem("jukebox_master_id");
     if (savedMaster) setMasterId(savedMaster);
@@ -123,11 +133,10 @@ export default function PlayerScreen() {
     }
   }, []);
 
-  // --- FIX: Re-evaluate interaction needs when setting toggles ---
+  // --- Re-evaluate interaction needs when setting toggles ---
   useEffect(() => {
     if (playerRef.current && isPlaying) {
       if (requireInteraction) {
-        // ถ้าเปิด setting กลับมา ให้เช็คทันทีว่า mute อยู่ไหม
         const isMuted = playerRef.current.isMuted();
         if (isIOS) {
           if (isMuted) setNeedsInteraction(true);
@@ -135,7 +144,6 @@ export default function PlayerScreen() {
           if (!hasInteracted && isMuted) setNeedsInteraction(true);
         }
       } else {
-        // ถ้าปิด setting ให้เอา overlay ออกทันที
         setNeedsInteraction(false);
       }
     }
@@ -287,6 +295,7 @@ export default function PlayerScreen() {
 
   const isMaster = (userId?: string) => userId === masterIdRef.current;
 
+  // --- Play Next Logic ---
   const playNext = (overrideQueue?: Song[]) => {
     const currentQueue = overrideQueue || queueRef.current;
     if (currentQueue.length > 0) {
@@ -298,6 +307,15 @@ export default function PlayerScreen() {
       setTimeout(() => setShowNowPlaying(false), 5000);
 
       if (playerRef.current) {
+        if (requireInteraction) {
+          if (isIOS) {
+            playerRef.current.mute();
+          } else {
+            if (!hasInteracted) {
+              playerRef.current.mute();
+            }
+          }
+        }
         playerRef.current.loadVideoById(nextSong.id);
       }
 
@@ -318,17 +336,35 @@ export default function PlayerScreen() {
   };
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
+    // Basic standard + Webkit prefix check
+    if (
+      !document.fullscreenElement &&
+      !(document as any).webkitFullscreenElement
+    ) {
+      const docEl = document.documentElement as any;
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen();
+      } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+      }
     } else {
-      if (document.exitFullscreen) document.exitFullscreen();
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
     }
   };
 
+  // --- Player Event Handlers ---
   const onReady = (event: { target: YouTubePlayer }) => {
     playerRef.current = event.target;
-    event.target.unMute();
-    event.target.setVolume(100);
+    if (requireInteraction) {
+      event.target.mute();
+    } else {
+      event.target.unMute();
+      event.target.setVolume(100);
+    }
   };
 
   const onStateChange = (e: any) => {
@@ -336,20 +372,23 @@ export default function PlayerScreen() {
       setIsPlaying(true);
 
       if (requireInteraction) {
+        const isMuted = playerRef.current?.isMuted();
+
         if (isIOS) {
-          const isMuted = playerRef.current?.isMuted();
           if (isMuted) setNeedsInteraction(true);
           else setNeedsInteraction(false);
         } else {
-          if (!hasInteracted) {
-            const isMuted = playerRef.current?.isMuted();
-            if (isMuted) setNeedsInteraction(true);
+          if (!hasInteracted && isMuted) {
+            setNeedsInteraction(true);
+          } else if (hasInteracted) {
+            setNeedsInteraction(false);
           }
         }
       } else {
         setNeedsInteraction(false);
       }
     }
+
     if (e.data === 2) setIsPlaying(false);
     if (e.data === 0) playNext();
   };
@@ -399,18 +438,24 @@ export default function PlayerScreen() {
         />
       )}
 
-      {/* --- Unmute / Interaction Overlay (Only if requireInteraction is ON) --- */}
+      {/* --- Unmute / Interaction Overlay (Card Style) --- */}
       {needsInteraction && currentSong && requireInteraction && (
-        <div
-          onClick={handleUserInteraction}
-          className="absolute inset-0 z-[60] bg-black/60 flex flex-col items-center justify-center cursor-pointer animate-in fade-in duration-300 backdrop-blur-sm"
-        >
-          <div className="bg-white text-black p-6 rounded-full shadow-[0_0_50px_rgba(255,255,255,0.4)] animate-pulse">
-            <FaVolumeUp size={40} className="pl-1" />
+        <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
+          {/* ใช้ inset-0 เพื่อจัดกึ่งกลาง แต่ใช้ pointer-events-none เพื่อไม่ให้บังส่วนอื่นถ้าเกิดมันโปร่งใส (แต่ในที่นี้มีปุ่ม) */}
+          <div
+            onClick={handleUserInteraction}
+            className="bg-black/80 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center justify-center cursor-pointer pointer-events-auto hover:scale-105 transition-transform animate-in fade-in zoom-in duration-300 mx-6 max-w-sm"
+          >
+            <div className="bg-pink-500/20 p-4 rounded-full text-pink-500 mb-4 animate-pulse">
+              <FaVolumeUp size={32} />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">
+              {isIOS ? "แตะเพื่อเปิดเสียง" : "แตะเพื่อเริ่มเสียง"}
+            </h3>
+            <p className="text-gray-400 text-sm text-center">
+              ระบบปิดเสียงชั่วคราวเพื่อเล่นวิดีโอต่อเนื่อง
+            </p>
           </div>
-          <p className="mt-6 text-xl md:text-2xl font-bold tracking-widest uppercase text-center px-4">
-            {isIOS ? "แตะเพื่อเปิดเสียงเพลง (iOS)" : "แตะหน้าจอเพื่อเริ่มเสียง"}
-          </p>
         </div>
       )}
 
@@ -621,12 +666,16 @@ export default function PlayerScreen() {
             isUIIdle ? "scale-90" : "scale-100"
           }`}
         >
-          <button
-            onClick={toggleFullscreen}
-            className="text-gray-400 hover:text-white p-2"
-          >
-            <FaExpand size={14} />
-          </button>
+          {/* แสดงปุ่ม Fullscreen เฉพาะถ้าระบบรองรับ */}
+          {supportsFullscreen && (
+            <button
+              onClick={toggleFullscreen}
+              className="text-gray-400 hover:text-white p-2"
+            >
+              <FaExpand size={14} />
+            </button>
+          )}
+
           <button
             onClick={() => setIsModalOpen(true)}
             className="text-gray-400 hover:text-white p-2"
@@ -635,6 +684,8 @@ export default function PlayerScreen() {
           </button>
         </div>
       </footer>
+
+      {/* ... (Modal Components remain unchanged) ... */}
 
       {/* Settings Modal */}
       <Modal

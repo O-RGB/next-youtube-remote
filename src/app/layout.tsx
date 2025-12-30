@@ -17,13 +17,20 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false, // ช่วยเรื่อง input zoom ในมือถือด้วย
+  userScalable: false,
 };
 
 export const metadata: Metadata = {
   title: "NextJuke - The Social Party Jukebox",
   description:
     "Turn any screen into a collaborative party jukebox. Let guests queue songs from their phones instantly via QR Code. No apps required.",
+  // --- เพิ่มส่วนนี้สำหรับ iOS Web App Fullscreen ---
+  appleWebApp: {
+    capable: true,
+    title: "NextJuke",
+    statusBarStyle: "black-translucent", // ให้ status bar โปร่งใสเห็นพื้นหลัง
+  },
+  // ---------------------------------------------
   keywords: [
     "Jukebox",
     "Party Playlist",
@@ -33,17 +40,17 @@ export const metadata: Metadata = {
     "NextJuke",
     "Nextamp",
   ],
-  authors: [{ name: "Your Name" }], // ใส่ชื่อคุณ
+  authors: [{ name: "Your Name" }],
   applicationName: "NextJuke",
   openGraph: {
     title: "NextJuke - Join the Party!",
     description:
       "Scan QR, Queue Songs, Party Hard. The best way to manage music with friends.",
-    url: "https://nextjuke.vercel.app", // เปลี่ยนเป็นโดเมนจริงของคุณ
+    url: "https://nextjuke.vercel.app",
     siteName: "NextJuke",
     images: [
       {
-        url: "/og-image.jpg", // อย่าลืมทำรูป og-image.jpg ขนาด 1200x630 ไว้ในโฟลเดอร์ public
+        url: "/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "NextJuke Party Interface",
@@ -60,7 +67,7 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: "/favicon.ico",
-    apple: "/apple-touch-icon.png", // แนะนำให้หาไอคอนมาใส่
+    apple: "/apple-touch-icon.png",
   },
 };
 
