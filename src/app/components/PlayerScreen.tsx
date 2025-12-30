@@ -24,6 +24,8 @@ import {
   FaHeart,
   FaCode,
   FaInfoCircle,
+  FaSignal,
+  FaSpinner,
 } from "react-icons/fa";
 import FunToast from "../components/FunToast";
 import Modal from "./Modal";
@@ -34,6 +36,8 @@ const formatTime = (seconds: number) => {
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 };
+
+type VideoQuality = "small" | "medium" | "hd720" | "auto";
 
 export default function PlayerScreen() {
   const [peerId, setPeerId] = useState<string>("");
@@ -49,17 +53,19 @@ export default function PlayerScreen() {
   >("dashboard");
   const [origin, setOrigin] = useState("");
 
+  // Settings
   const [videoFit, setVideoFit] = useState(false);
   const [requireInteraction, setRequireInteraction] = useState(true);
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>("auto"); // [NEW] Quality Setting
+
   const [isIOS, setIsIOS] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
-
-  // [FIX 1] เพิ่ม Ref เพื่อจำค่าการกดเปิดเสียง (แม่นยำกว่า State)
   const hasInteractedRef = useRef(false);
 
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false); // [NEW] Loading State
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
@@ -116,11 +122,32 @@ export default function PlayerScreen() {
     const savedReqInt = localStorage.getItem("jukebox_require_interaction");
     if (savedReqInt === "false") setRequireInteraction(false);
 
+    // [NEW] Load Quality Setting
+    const savedQuality = localStorage.getItem(
+      "jukebox_video_quality"
+    ) as VideoQuality;
+    if (savedQuality) {
+      setVideoQuality(savedQuality);
+    } else {
+      // Auto-detect for low spec devices (concurrency < 4 usually implies older/budget device)
+      if (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) {
+        setVideoQuality("small");
+        localStorage.setItem("jukebox_video_quality", "small");
+      }
+    }
+
     const hasSeenWelcome = localStorage.getItem("jukebox_has_seen_welcome");
     if (!hasSeenWelcome) {
       setShowWelcomeModal(true);
     }
   }, []);
+
+  // [NEW] Apply Quality changes
+  useEffect(() => {
+    if (playerRef.current && videoQuality !== "auto") {
+      playerRef.current.setPlaybackQuality(videoQuality);
+    }
+  }, [videoQuality]);
 
   useEffect(() => {
     if (playerRef.current && isPlaying) {
@@ -129,14 +156,13 @@ export default function PlayerScreen() {
         if (isIOS) {
           if (isMuted) setNeedsInteraction(true);
         } else {
-          // [FIX 2] เช็คจาก Ref แทน State เพื่อความแม่นยำ
           if (!hasInteractedRef.current && isMuted) setNeedsInteraction(true);
         }
       } else {
         setNeedsInteraction(false);
       }
     }
-  }, [requireInteraction, isPlaying, isIOS]); // เอา hasInteracted ออกจาก dependency
+  }, [requireInteraction, isPlaying, isIOS]);
 
   const handleCloseWelcome = () => {
     setShowWelcomeModal(false);
@@ -156,6 +182,23 @@ export default function PlayerScreen() {
     localStorage.setItem("jukebox_require_interaction", String(newVal));
     showToast(
       newVal ? "เปิดระบบตรวจสอบเสียง (Safe)" : "ปิดระบบตรวจสอบ (Free Mode)",
+      "info"
+    );
+  };
+
+  const handleQualityChange = (q: VideoQuality) => {
+    setVideoQuality(q);
+    localStorage.setItem("jukebox_video_quality", q);
+    showToast(
+      `ปรับคุณภาพเป็น: ${
+        q === "auto"
+          ? "อัตโนมัติ"
+          : q === "small"
+          ? "ประหยัด (Low)"
+          : q === "medium"
+          ? "ปานกลาง (SD)"
+          : "ชัดเจน (HD)"
+      }`,
       "info"
     );
   };
@@ -261,10 +304,16 @@ export default function PlayerScreen() {
         }
         break;
       case "PLAY":
-        if (isMaster(cmd.user.id)) playerRef.current?.playVideo();
+        if (isMaster(cmd.user.id)) {
+          setIsPlaying(true); // [FIX] Sync state manually
+          playerRef.current?.playVideo();
+        }
         break;
       case "PAUSE":
-        if (isMaster(cmd.user.id)) playerRef.current?.pauseVideo();
+        if (isMaster(cmd.user.id)) {
+          setIsPlaying(false); // [FIX] Sync state immediately to prevent Watchdog
+          playerRef.current?.pauseVideo();
+        }
         break;
       case "STOP":
         if (isMaster(cmd.user.id)) handleStop();
@@ -287,36 +336,35 @@ export default function PlayerScreen() {
       setQueue(remainingQueue);
       setCurrentSong(nextSong);
       setIsPlaying(true);
+      setIsBuffering(true); // [FIX] Start Loading
       setShowNowPlaying(true);
       setTimeout(() => setShowNowPlaying(false), 5000);
 
       if (playerRef.current) {
-        // [FIX 3] โหลดวิดีโอ
-        playerRef.current.loadVideoById(nextSong.id);
+        // [FIX] Apply quality setting immediately on load
+        playerRef.current.loadVideoById({
+          videoId: nextSong.id,
+          suggestedQuality: videoQuality !== "auto" ? videoQuality : "medium",
+        });
 
         if (requireInteraction) {
           if (isIOS) {
-            // iOS ต้องรอ User กดเสมอ
             playerRef.current.mute();
           } else {
-            // Android/PC: เช็คจาก Ref ถ้าเคยกดแล้ว ให้เล่นเลย
             if (!hasInteractedRef.current) {
               playerRef.current.mute();
             } else {
-              // [FIX 4] Force Play สำหรับ Android
               playerRef.current.unMute();
               playerRef.current.setVolume(100);
-              // หน่วงเวลานิดนึงเพื่อให้ YouTube API บน Android พร้อม
-              setTimeout(() => {
-                playerRef.current?.playVideo();
-              }, 150);
+              // setTimeout(() => {
+              //   playerRef.current?.playVideo();
+              // }, 150);
             }
           }
         } else {
-          // Free Mode
           playerRef.current.unMute();
           playerRef.current.setVolume(100);
-          setTimeout(() => playerRef.current?.playVideo(), 150);
+          // setTimeout(() => playerRef.current?.playVideo(), 150);
         }
       }
 
@@ -331,6 +379,7 @@ export default function PlayerScreen() {
     setCurrentSong(null);
     setQueue([]);
     setIsPlaying(false);
+    setIsBuffering(false);
     setCurrentTime(0);
     setDuration(0);
     broadcastState();
@@ -358,26 +407,36 @@ export default function PlayerScreen() {
 
   const onReady = (event: { target: YouTubePlayer }) => {
     playerRef.current = event.target;
-    // ปรับให้เริ่มต้น Mute ไว้ก่อนเพื่อความชัวร์ในการโหลด
     event.target.mute();
+    // [FIX] Apply initial quality
+    if (videoQuality !== "auto") {
+      event.target.setPlaybackQuality(videoQuality);
+    }
   };
 
   const onStateChange = (e: any) => {
-    // 1 = Playing, 3 = Buffering
-    if (e.data === 1 || e.data === 3) {
+    // -1 = Unstarted, 0 = Ended, 1 = Playing, 2 = Paused, 3 = Buffering, 5 = Cued
+
+    // [FIX] Handle Buffering/Loading UI
+    if (e.data === 3 || e.data === -1) {
+      setIsBuffering(true);
+    } else if (e.data === 1) {
+      setIsBuffering(false);
       setIsPlaying(true);
+    }
+
+    if (e.data === 1 || e.data === 3) {
+      // Logic check interaction ...
       if (requireInteraction) {
         const isMuted = playerRef.current?.isMuted();
         if (isIOS) {
           if (isMuted) setNeedsInteraction(true);
           else setNeedsInteraction(false);
         } else {
-          // [FIX 5] ใช้ Ref เช็ค
           if (!hasInteractedRef.current && isMuted) {
             setNeedsInteraction(true);
           } else if (hasInteractedRef.current) {
             setNeedsInteraction(false);
-            // ถ้าเคย Interact แล้วแต่เสียงยังปิดอยู่ ให้เปิดเสียงเลย
             if (isMuted) playerRef.current?.unMute();
           }
         }
@@ -386,16 +445,25 @@ export default function PlayerScreen() {
       }
     }
 
-    // [FIX 6] Watchdog: ถ้าหยุดเอง (Paused/Cued) แต่เราต้องการให้เล่น และเป็น Android ที่เคย Interact แล้ว -> สั่งเล่นต่อทันที
+    // [FIX] Watchdog: Improved Logic
+    // Only force play if:
+    // 1. Status is paused/cued/unstarted
+    // 2. We THINK we should be playing (isPlaying = true)
+    // 3. Not on iOS (iOS controls itself)
+    // 4. User has interacted previously
     if (
       (e.data === 2 || e.data === 5 || e.data === -1) &&
-      isPlaying &&
+      isPlaying && // This variable is now critical
       !isIOS &&
       hasInteractedRef.current
     ) {
-      playerRef.current?.playVideo();
+      // If we are buffering, don't force play yet, let it buffer
+      // But if it's PAUSED (2), force play
+      if (e.data === 2) {
+        playerRef.current?.playVideo();
+      }
     } else if (e.data === 2) {
-      // ถ้าหยุดโดย User จริงๆ
+      // If stopped by User locally (controls) or via Remote (which sets isPlaying=false first)
       setIsPlaying(false);
     }
 
@@ -410,7 +478,6 @@ export default function PlayerScreen() {
     }
     setNeedsInteraction(false);
     setHasInteracted(true);
-    // [FIX 7] อัปเดต Ref ด้วย
     hasInteractedRef.current = true;
   };
 
@@ -449,6 +516,7 @@ export default function PlayerScreen() {
         />
       )}
 
+      {/* Interaction Prompt Overlay */}
       {needsInteraction && currentSong && requireInteraction && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
           <div
@@ -468,8 +536,9 @@ export default function PlayerScreen() {
         </div>
       )}
 
+      {/* Top Bar */}
       <header
-        className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 transition-all duration-500 ease-in-out border-b border-zinc-800 bg-black
+        className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 transition-all duration-500 ease-in-out border-b border-zinc-800 bg-black/90
             ${
               isUIIdle
                 ? "h-12 opacity-20 translate-y-[-10%] hover:opacity-100"
@@ -507,9 +576,10 @@ export default function PlayerScreen() {
         </div>
       </header>
 
+      {/* Video Area */}
       <div className="flex-1 relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
         <div
-          className={`transition-all duration-700 ease-in-out ${
+          className={`transition-all duration-700 ease-in-out bg-black ${
             showQR ? "opacity-20 !scale-95" : "opacity-100"
           } ${
             videoFit
@@ -517,13 +587,30 @@ export default function PlayerScreen() {
               : "w-full h-full relative"
           }`}
         >
+          {/* [FIX] Black Background Wrapper to prevent white flash */}
           <div
-            className={
+            className={`bg-black ${
               videoFit
                 ? "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.78vh] h-[100vh] min-w-full min-h-full"
                 : "w-full h-full"
-            }
+            }`}
           >
+            {/* [FIX] Loading Spinner Overlay */}
+            {isBuffering && currentSong && !showQR && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
+                <div className="flex flex-col items-center gap-3">
+                  <img
+                    src={currentSong.thumbnail}
+                    className="w-24 h-24 rounded-full animate-pulse blur-sm opacity-50 absolute"
+                  />
+                  <FaSpinner className="text-white text-4xl animate-spin z-10" />
+                  <p className="text-xs text-gray-400 z-10 font-mono mt-24">
+                    LOADING...
+                  </p>
+                </div>
+              </div>
+            )}
+
             <YouTube
               videoId={currentSong?.id || ""}
               opts={{
@@ -543,11 +630,14 @@ export default function PlayerScreen() {
               }}
               onReady={onReady}
               onStateChange={onStateChange}
-              className="w-full h-full pointer-events-none"
+              className={`w-full h-full pointer-events-none ${
+                isBuffering ? "opacity-0" : "opacity-100"
+              } transition-opacity duration-500`}
             />
           </div>
         </div>
 
+        {/* QR Code Overlay (Idle) */}
         {showQR && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4">
             <div className="flex flex-col items-center gap-6 p-8 rounded-3xl bg-zinc-900 border border-zinc-700 shadow-2xl animate-in fade-in zoom-in duration-500 max-w-sm w-full">
@@ -579,6 +669,7 @@ export default function PlayerScreen() {
           </div>
         )}
 
+        {/* Now Playing Popup */}
         <div
           className={`absolute inset-0 flex items-center justify-center z-20 pointer-events-none transition-all duration-500 
             ${
@@ -587,10 +678,10 @@ export default function PlayerScreen() {
                 : "opacity-0 translate-y-10"
             }`}
         >
-          <div className="bg-black/90 p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-lg mx-6">
+          <div className="bg-black/90 p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-lg mx-6 backdrop-blur-md">
             <img
               src={currentSong?.thumbnail}
-              className="w-40 h-40 rounded-2xl shadow-2xl mb-6 object-cover aspect-video"
+              className="w-40 h-40 rounded-2xl shadow-2xl mb-6 object-cover aspect-video bg-zinc-800"
             />
             <h2 className="text-2xl font-bold text-white mb-2 line-clamp-2">
               {currentSong?.title}
@@ -602,6 +693,7 @@ export default function PlayerScreen() {
         </div>
       </div>
 
+      {/* Footer Controls */}
       <footer
         className={`fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-zinc-800 transition-all duration-500 ease-in-out flex items-center 
         ${
@@ -612,11 +704,15 @@ export default function PlayerScreen() {
       >
         <div className="flex items-center gap-1 md:gap-2 transition-all duration-500 shrink-0">
           <button
-            onClick={() =>
-              isPlaying
-                ? playerRef.current?.pauseVideo()
-                : playerRef.current?.playVideo()
-            }
+            onClick={() => {
+              if (isPlaying) {
+                setIsPlaying(false);
+                playerRef.current?.pauseVideo();
+              } else {
+                setIsPlaying(true);
+                playerRef.current?.playVideo();
+              }
+            }}
             className="text-white hover:text-pink-500 p-2 hover:scale-110 transition bg-white/10 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center"
           >
             {isPlaying ? (
@@ -686,6 +782,7 @@ export default function PlayerScreen() {
         </div>
       </footer>
 
+      {/* Settings Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -787,6 +884,7 @@ export default function PlayerScreen() {
           {settingsTab === "settings" && (
             <div className="grid grid-cols-1 gap-4">
               <div className="bg-zinc-800/50 rounded-xl p-6 flex flex-col gap-6">
+                {/* Interaction Setting */}
                 <div className="flex items-center justify-between">
                   <div className="flex gap-3 items-center">
                     <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
@@ -817,6 +915,7 @@ export default function PlayerScreen() {
 
                 <div className="h-px bg-white/5" />
 
+                {/* Aspect Ratio Setting */}
                 <div className="flex items-center justify-between">
                   <div className="flex gap-3 items-center">
                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
@@ -845,6 +944,47 @@ export default function PlayerScreen() {
                       }`}
                     />
                   </button>
+                </div>
+
+                <div className="h-px bg-white/5" />
+
+                {/* [NEW] Quality Setting */}
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-3 items-center">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400">
+                      <FaSignal />
+                    </div>
+                    <div>
+                      <h4 className="font-bold">
+                        คุณภาพวิดีโอ (Video Quality)
+                      </h4>
+                      <p className="text-xs text-gray-400">
+                        ลดคุณภาพเพื่อความลื่นไหลในเครื่องสเปกต่ำ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex bg-black/40 rounded-lg p-1">
+                    {[
+                      { val: "small", label: "Low" },
+                      { val: "medium", label: "Med" },
+                      { val: "hd720", label: "High" },
+                      { val: "auto", label: "Auto" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.val}
+                        onClick={() =>
+                          handleQualityChange(opt.val as VideoQuality)
+                        }
+                        className={`px-3 py-1 text-xs rounded-md transition ${
+                          videoQuality === opt.val
+                            ? "bg-orange-600 text-white shadow"
+                            : "text-gray-500 hover:text-white"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
