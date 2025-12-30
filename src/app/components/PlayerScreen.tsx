@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import YouTube, { YouTubePlayer } from "react-youtube";
 import type { Peer, DataConnection } from "peerjs";
 import QRCode from "react-qr-code";
@@ -28,7 +28,6 @@ import {
 import FunToast from "../components/FunToast";
 import Modal from "./Modal";
 
-// --- Utility: Format Time ---
 const formatTime = (seconds: number) => {
   if (!seconds || isNaN(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
@@ -37,14 +36,12 @@ const formatTime = (seconds: number) => {
 };
 
 export default function PlayerScreen() {
-  // --- State ---
   const [peerId, setPeerId] = useState<string>("");
   const [queue, setQueue] = useState<Song[]>([]);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [connectedUsers, setConnectedUsers] = useState<User[]>([]);
   const [masterId, setMasterId] = useState<string | null>(null);
 
-  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState<
@@ -52,22 +49,18 @@ export default function PlayerScreen() {
   >("dashboard");
   const [origin, setOrigin] = useState("");
 
-  // Settings State
   const [videoFit, setVideoFit] = useState(false);
   const [requireInteraction, setRequireInteraction] = useState(true);
   const [isIOS, setIsIOS] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
-  // --- เพิ่ม State เช็ค Fullscreen Support ---
   const [supportsFullscreen, setSupportsFullscreen] = useState(false);
 
-  // Player State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
 
-  // Interaction & UI State
   const [isUIIdle, setIsUIIdle] = useState(false);
   const uiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [needsInteraction, setNeedsInteraction] = useState(false);
@@ -76,7 +69,6 @@ export default function PlayerScreen() {
     type: "join" | "add" | "info" | "alert";
   } | null>(null);
 
-  // Refs
   const playerRef = useRef<YouTubePlayer | null>(null);
   const queueRef = useRef<Song[]>([]);
   const connectionsRef = useRef<Map<string, DataConnection>>(new Map());
@@ -85,7 +77,6 @@ export default function PlayerScreen() {
   const currentSongRef = useRef<Song | null>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Sync Refs
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
@@ -98,25 +89,21 @@ export default function PlayerScreen() {
     if (masterId) broadcastState();
   }, [masterId, currentSong]);
 
-  // Init & Load Settings
   useEffect(() => {
     setOrigin(window.location.origin);
 
-    // Check OS
     const userAgent =
       navigator.userAgent || navigator.vendor || (window as any).opera;
     const isIOSCheck =
       /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
     setIsIOS(isIOSCheck);
 
-    // --- Check Fullscreen Support ---
     setSupportsFullscreen(
       !!(
         document.fullscreenEnabled || (document as any).webkitFullscreenEnabled
       )
     );
 
-    // Load LocalStorage
     const savedMaster = localStorage.getItem("jukebox_master_id");
     if (savedMaster) setMasterId(savedMaster);
 
@@ -126,14 +113,12 @@ export default function PlayerScreen() {
     const savedReqInt = localStorage.getItem("jukebox_require_interaction");
     if (savedReqInt === "false") setRequireInteraction(false);
 
-    // Check Welcome Modal
     const hasSeenWelcome = localStorage.getItem("jukebox_has_seen_welcome");
     if (!hasSeenWelcome) {
       setShowWelcomeModal(true);
     }
   }, []);
 
-  // --- Re-evaluate interaction needs when setting toggles ---
   useEffect(() => {
     if (playerRef.current && isPlaying) {
       if (requireInteraction) {
@@ -171,7 +156,6 @@ export default function PlayerScreen() {
     );
   };
 
-  // --- UI Auto Shrink Logic ---
   const handleMouseMove = useCallback(() => {
     setIsUIIdle(false);
     if (uiTimeoutRef.current) clearTimeout(uiTimeoutRef.current);
@@ -193,7 +177,6 @@ export default function PlayerScreen() {
     };
   }, [handleMouseMove]);
 
-  // Progress Bar
   useEffect(() => {
     if (progressInterval.current) clearInterval(progressInterval.current);
     progressInterval.current = setInterval(async () => {
@@ -213,7 +196,6 @@ export default function PlayerScreen() {
     setToast({ msg, type });
   };
 
-  // PeerJS
   useEffect(() => {
     let peer: Peer;
     const initPeer = async () => {
@@ -229,7 +211,6 @@ export default function PlayerScreen() {
     return () => peer?.destroy();
   }, []);
 
-  // Commands
   const handleCommand = (cmd: Command, conn: DataConnection) => {
     switch (cmd.type) {
       case "JOIN":
@@ -295,7 +276,6 @@ export default function PlayerScreen() {
 
   const isMaster = (userId?: string) => userId === masterIdRef.current;
 
-  // --- Play Next Logic ---
   const playNext = (overrideQueue?: Song[]) => {
     const currentQueue = overrideQueue || queueRef.current;
     if (currentQueue.length > 0) {
@@ -313,6 +293,9 @@ export default function PlayerScreen() {
           } else {
             if (!hasInteracted) {
               playerRef.current.mute();
+            } else {
+              playerRef.current.unMute();
+              playerRef.current.setVolume(100);
             }
           }
         }
@@ -336,7 +319,6 @@ export default function PlayerScreen() {
   };
 
   const toggleFullscreen = () => {
-    // Basic standard + Webkit prefix check
     if (
       !document.fullscreenElement &&
       !(document as any).webkitFullscreenElement
@@ -356,7 +338,6 @@ export default function PlayerScreen() {
     }
   };
 
-  // --- Player Event Handlers ---
   const onReady = (event: { target: YouTubePlayer }) => {
     playerRef.current = event.target;
     if (requireInteraction) {
@@ -438,10 +419,8 @@ export default function PlayerScreen() {
         />
       )}
 
-      {/* --- Unmute / Interaction Overlay (Card Style) --- */}
       {needsInteraction && currentSong && requireInteraction && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center pointer-events-none">
-          {/* ใช้ inset-0 เพื่อจัดกึ่งกลาง แต่ใช้ pointer-events-none เพื่อไม่ให้บังส่วนอื่นถ้าเกิดมันโปร่งใส (แต่ในที่นี้มีปุ่ม) */}
           <div
             onClick={handleUserInteraction}
             className="bg-black/80 backdrop-blur-md p-8 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center justify-center cursor-pointer pointer-events-auto hover:scale-105 transition-transform animate-in fade-in zoom-in duration-300 mx-6 max-w-sm"
@@ -459,7 +438,6 @@ export default function PlayerScreen() {
         </div>
       )}
 
-      {/* --- Header --- */}
       <header
         className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 transition-all duration-500 ease-in-out border-b border-zinc-800 bg-black
             ${
@@ -482,7 +460,6 @@ export default function PlayerScreen() {
           </h1>
         </div>
 
-        {/* Status Indicator */}
         <div
           className="flex items-center gap-3 transition-transform duration-500 origin-right"
           style={{ transform: isUIIdle ? "scale(0.8)" : "scale(1)" }}
@@ -500,9 +477,7 @@ export default function PlayerScreen() {
         </div>
       </header>
 
-      {/* --- Content Area --- */}
       <div className="flex-1 relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
-        {/* YouTube Wrapper */}
         <div
           className={`transition-all duration-700 ease-in-out ${
             showQR ? "opacity-20 !scale-95" : "opacity-100"
@@ -543,7 +518,6 @@ export default function PlayerScreen() {
           </div>
         </div>
 
-        {/* QR Code */}
         {showQR && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4">
             <div className="flex flex-col items-center gap-6 p-8 rounded-3xl bg-zinc-900 border border-zinc-700 shadow-2xl animate-in fade-in zoom-in duration-500 max-w-sm w-full">
@@ -575,7 +549,6 @@ export default function PlayerScreen() {
           </div>
         )}
 
-        {/* Now Playing Popup */}
         <div
           className={`absolute inset-0 flex items-center justify-center z-20 pointer-events-none transition-all duration-500 
             ${
@@ -599,7 +572,6 @@ export default function PlayerScreen() {
         </div>
       </div>
 
-      {/* --- Footer Control Bar --- */}
       <footer
         className={`fixed bottom-0 left-0 right-0 z-50 bg-black border-t border-zinc-800 transition-all duration-500 ease-in-out flex items-center 
         ${
@@ -666,7 +638,6 @@ export default function PlayerScreen() {
             isUIIdle ? "scale-90" : "scale-100"
           }`}
         >
-          {/* แสดงปุ่ม Fullscreen เฉพาะถ้าระบบรองรับ */}
           {supportsFullscreen && (
             <button
               onClick={toggleFullscreen}
@@ -685,9 +656,6 @@ export default function PlayerScreen() {
         </div>
       </footer>
 
-      {/* ... (Modal Components remain unchanged) ... */}
-
-      {/* Settings Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -914,7 +882,6 @@ export default function PlayerScreen() {
         </div>
       </Modal>
 
-      {/* Welcome / Info Modal (Compact Version for Mobile) */}
       <Modal
         isOpen={showWelcomeModal}
         onClose={handleCloseWelcome}
@@ -922,7 +889,6 @@ export default function PlayerScreen() {
       >
         <div className="p-3 md:p-6 text-white overflow-y-auto max-h-[80vh]">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-8">
-            {/* Android Info */}
             <div className="bg-zinc-800/50 p-3 md:p-6 rounded-2xl border border-green-500/20 text-center space-y-2 md:space-y-4">
               <FaAndroid className="text-4xl md:text-6xl text-green-500 mx-auto" />
               <h3 className="text-base md:text-xl font-bold text-green-400">
@@ -940,7 +906,6 @@ export default function PlayerScreen() {
               </div>
             </div>
 
-            {/* iOS Info */}
             <div className="bg-zinc-800/50 p-3 md:p-6 rounded-2xl border border-white/20 text-center space-y-2 md:space-y-4">
               <FaApple className="text-4xl md:text-6xl text-white mx-auto" />
               <h3 className="text-base md:text-xl font-bold text-white">
